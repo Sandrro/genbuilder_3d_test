@@ -1,0 +1,472 @@
+# tex_prompts.yaml
+# Single-file prompt library for photorealistic building texturing in UV space (SDXL/FLUX).
+# Conventions:
+# - Prompts assume ORTHO UV-atlas rendering (no perspective), "flat texture / material scan" look.
+# - Use {placeholders} to inject runtime params (city, era, climate, floors, style tags).
+# - Keep negative prompts strict to avoid graffiti/text/people/vehicles.
+# - Each preset can be used for:
+#   - base_pass: generate facade / roof material across zones (plinth + floors)
+#   - detail_pass: inpaint openings (windows/doors/balconies) by binary masks
+# - "control_hint": recommended ControlNet conditioning for the pass (seg/canny/depth).
+# - "mask_targets": which masks (from your UV layout generator) to apply for inpaint.
+# - "sampler_defaults": reasonable defaults; tune per backend.
+
+version: 1
+defaults:
+  language: en
+  global_style:
+    photoreal: "photorealistic, ultra-detailed, realistic materials, natural imperfections, physically plausible"
+    texture_space: "flat orthographic UV texture, seamless material look, no perspective, no camera, no depth of field"
+    lighting: "neutral overcast lighting, soft diffuse light, no strong shadows, consistent illumination"
+    quality: "high resolution, sharp, clean edges, consistent scale"
+  global_negative:
+    - "text, letters, numbers, signage, billboards"
+    - "people, faces, animals"
+    - "cars, traffic, street furniture"
+    - "sky, clouds, horizon, landscape"
+    - "interior, furniture"
+    - "cartoon, anime, illustration, painting"
+    - "fisheye, lens distortion, perspective"
+    - "blurry, lowres, jpeg artifacts, watermark, logo"
+    - "graffiti"
+  runtime_placeholders:
+    - "{city_hint}"         # e.g. "Central Europe", "Northern UK", "Mediterranean"
+    - "{climate_hint}"      # e.g. "humid", "dry", "coastal", "cold"
+    - "{era_hint}"          # e.g. "1980s", "postwar", "contemporary"
+    - "{style_hint}"        # e.g. "modernist", "neoclassical", "industrial loft"
+    - "{material_hint}"     # optional extra material constraints
+    - "{seed_hint}"         # optional textual anchor
+    - "{floor_count}"       # integer as string
+    - "{floor_height_m}"    # float as string
+
+sampler_defaults:
+  sdxl:
+    steps_base: 28
+    steps_inpaint: 22
+    cfg_base: 5.0
+    cfg_inpaint: 4.5
+    denoise_inpaint: 0.55
+  flux:
+    steps_base: 24
+    steps_inpaint: 18
+    guidance_base: 3.5
+    guidance_inpaint: 3.0
+    strength_inpaint: 0.55
+
+palettes:
+  # Optional: you can map seg colors to zones; your code can use this.
+  zones:
+    plinth: [60, 60, 60]
+    floor: [160, 160, 160]
+    window: [0, 120, 255]
+    door: [255, 120, 0]
+    balcony: [0, 200, 120]
+    roof: [200, 0, 200]
+
+presets:
+  # -------------------------
+  # FACADE BASE MATERIALS
+  # -------------------------
+  facade_plaster_modern:
+    kind: facade_base
+    description: "Contemporary plaster facade, subtle texture, clean but realistic"
+    prompt: >
+      {city_hint}, {era_hint}, {style_hint}.
+      Modern exterior facade plaster, fine stucco grain, subtle variations, slight weathering,
+      realistic dirt accumulation near plinth, micro-cracks, small repairs, consistent scale.
+      {material_hint}. {seed_hint}.
+      ${defaults.global_style.photoreal}, ${defaults.global_style.texture_space},
+      ${defaults.global_style.lighting}, ${defaults.global_style.quality}
+    negative: ${defaults.global_negative}
+    control_hint: ["seg"]            # use seg map to keep plinth vs floors consistent
+    zone_prompts:
+      plinth_extra: "darker reinforced plaster or stone-like base, more grime near ground"
+      floor_extra: "cleaner plaster, fewer stains, consistent finish"
+    passes:
+      base_pass:
+        target: "atlas_walls"
+        use_zones: ["plinth", "floor"]
+        prefer_tiling: true
+
+  facade_brick_classic:
+    kind: facade_base
+    description: "Classic brick facade with realistic mortar and slight aging"
+    prompt: >
+      {city_hint}, {era_hint}, {style_hint}.
+      Brick facade, realistic fired clay bricks, varied tones, mortar lines, subtle efflorescence,
+      natural wear, small chips, slight soot near windows, consistent brick scale.
+      {material_hint}. {seed_hint}.
+      ${defaults.global_style.photoreal}, ${defaults.global_style.texture_space},
+      ${defaults.global_style.lighting}, ${defaults.global_style.quality}
+    negative: ${defaults.global_negative}
+    control_hint: ["seg", "canny"]   # canny helps keep crisp band borders
+    passes:
+      base_pass:
+        target: "atlas_walls"
+        use_zones: ["plinth", "floor"]
+        prefer_tiling: true
+
+  facade_concrete_panel_soviet:
+    kind: facade_base
+    description: "Precast concrete panels, seams, slight staining, realistic"
+    prompt: >
+      {city_hint}, {era_hint}, {style_hint}.
+      Precast concrete panel facade, visible panel seams, subtle aggregate,
+      realistic staining from rain, minor spalling, patch repairs, consistent module scale,
+      slightly different panels, occasional expansion joints.
+      {material_hint}. {seed_hint}.
+      ${defaults.global_style.photoreal}, ${defaults.global_style.texture_space},
+      ${defaults.global_style.lighting}, ${defaults.global_style.quality}
+    negative: ${defaults.global_negative}
+    control_hint: ["seg", "canny"]
+    passes:
+      base_pass:
+        target: "atlas_walls"
+        use_zones: ["plinth", "floor"]
+        prefer_tiling: false
+
+  facade_wood_siding:
+    kind: facade_base
+    description: "Wood cladding / siding for low-rise houses"
+    prompt: >
+      {city_hint}, {era_hint}, {style_hint}.
+      Exterior wood siding, realistic grain, knots, painted boards, slight warping,
+      consistent board width, subtle weathering, small nail marks.
+      {material_hint}. {seed_hint}.
+      ${defaults.global_style.photoreal}, ${defaults.global_style.texture_space},
+      ${defaults.global_style.lighting}, ${defaults.global_style.quality}
+    negative: ${defaults.global_negative}
+    control_hint: ["seg"]
+    passes:
+      base_pass:
+        target: "atlas_walls"
+        use_zones: ["plinth", "floor"]
+        prefer_tiling: true
+
+  facade_stone_cladding:
+    kind: facade_base
+    description: "Stone cladding for premium buildings"
+    prompt: >
+      {city_hint}, {era_hint}, {style_hint}.
+      Stone cladding facade, realistic cut stone blocks, subtle chisel marks,
+      mortar joints, natural variation, slight weathering, consistent scale.
+      {material_hint}. {seed_hint}.
+      ${defaults.global_style.photoreal}, ${defaults.global_style.texture_space},
+      ${defaults.global_style.lighting}, ${defaults.global_style.quality}
+    negative: ${defaults.global_negative}
+    control_hint: ["seg", "canny"]
+    passes:
+      base_pass:
+        target: "atlas_walls"
+        use_zones: ["plinth", "floor"]
+        prefer_tiling: true
+
+  facade_glass_curtain_wall:
+    kind: facade_base
+    description: "Modern curtain wall base (used with window/detail passes too)"
+    prompt: >
+      {city_hint}, {era_hint}, {style_hint}.
+      Curtain wall facade, aluminum mullions, tinted glass panels,
+      subtle reflections without environment, clean but realistic,
+      consistent module grid, realistic gasket lines.
+      {material_hint}. {seed_hint}.
+      ${defaults.global_style.photoreal}, ${defaults.global_style.texture_space},
+      ${defaults.global_style.lighting}, ${defaults.global_style.quality}
+    negative: ${defaults.global_negative}
+    control_hint: ["seg", "canny"]
+    passes:
+      base_pass:
+        target: "atlas_walls"
+        use_zones: ["floor"]
+        prefer_tiling: false
+
+  # -------------------------
+  # OPENINGS (INPAINT DETAILS)
+  # -------------------------
+  openings_windows_pvc_white:
+    kind: detail_inpaint
+    description: "PVC double-glazed windows, white frames"
+    prompt: >
+      Realistic exterior windows, white PVC frames, double glazing, clean seals,
+      subtle glass reflections, consistent alignment and scale, crisp edges,
+      slight dirt in corners, realistic shadowing baked into texture only minimally.
+      {material_hint}. {seed_hint}.
+      ${defaults.global_style.photoreal}, ${defaults.global_style.texture_space},
+      ${defaults.global_style.lighting}, ${defaults.global_style.quality}
+    negative:
+      - ${defaults.global_negative}
+      - "broken glass, open curtains, interior view, people behind windows"
+    control_hint: ["canny"]          # edges from opening rectangles help
+    mask_targets: ["mask_windows"]
+    passes:
+      detail_pass:
+        mode: "inpaint"
+        target: "atlas_walls"
+        feather_px: 6
+
+  openings_windows_wood_traditional:
+    kind: detail_inpaint
+    description: "Traditional wood-framed windows"
+    prompt: >
+      Traditional wooden window frames, painted or varnished, realistic wood grain,
+      multi-pane glazing, slight aging, crisp mullions, subtle reflections.
+      {material_hint}. {seed_hint}.
+      ${defaults.global_style.photoreal}, ${defaults.global_style.texture_space},
+      ${defaults.global_style.lighting}, ${defaults.global_style.quality}
+    negative: ${defaults.global_negative}
+    control_hint: ["canny"]
+    mask_targets: ["mask_windows"]
+    passes:
+      detail_pass:
+        mode: "inpaint"
+        target: "atlas_walls"
+        feather_px: 6
+
+  openings_doors_metal_entry:
+    kind: detail_inpaint
+    description: "Metal entry doors, apartment building"
+    prompt: >
+      Exterior metal entrance door, matte painted steel, realistic handle,
+      lock details, small peephole, subtle wear on edges, clean geometry.
+      {material_hint}. {seed_hint}.
+      ${defaults.global_style.photoreal}, ${defaults.global_style.texture_space},
+      ${defaults.global_style.lighting}, ${defaults.global_style.quality}
+    negative: ${defaults.global_negative}
+    control_hint: ["canny"]
+    mask_targets: ["mask_doors"]
+    passes:
+      detail_pass:
+        mode: "inpaint"
+        target: "atlas_walls"
+        feather_px: 8
+
+  openings_doors_glass_commercial:
+    kind: detail_inpaint
+    description: "Commercial glass doors"
+    prompt: >
+      Commercial glass door, aluminum frame, realistic push bars,
+      subtle reflections without environment, clean seals, crisp edges.
+      {material_hint}. {seed_hint}.
+      ${defaults.global_style.photoreal}, ${defaults.global_style.texture_space},
+      ${defaults.global_style.lighting}, ${defaults.global_style.quality}
+    negative: ${defaults.global_negative}
+    control_hint: ["canny"]
+    mask_targets: ["mask_doors"]
+    passes:
+      detail_pass:
+        mode: "inpaint"
+        target: "atlas_walls"
+        feather_px: 8
+
+  openings_balcony_concrete_slab:
+    kind: detail_inpaint
+    description: "Concrete balcony slab + simple railing"
+    prompt: >
+      Balcony slab, realistic concrete underside, simple metal railing,
+      subtle stains, consistent scale, crisp boundaries, plausible construction details.
+      {material_hint}. {seed_hint}.
+      ${defaults.global_style.photoreal}, ${defaults.global_style.texture_space},
+      ${defaults.global_style.lighting}, ${defaults.global_style.quality}
+    negative:
+      - ${defaults.global_negative}
+      - "plants, furniture, people"
+    control_hint: ["canny"]
+    mask_targets: ["mask_balconies"]
+    passes:
+      detail_pass:
+        mode: "inpaint"
+        target: "atlas_walls"
+        feather_px: 10
+
+  openings_balcony_glass_railing:
+    kind: detail_inpaint
+    description: "Modern glass railing balcony"
+    prompt: >
+      Modern balcony with glass railing, metal posts, clean detailing,
+      subtle reflections, realistic joints, consistent scale, crisp edges.
+      {material_hint}. {seed_hint}.
+      ${defaults.global_style.photoreal}, ${defaults.global_style.texture_space},
+      ${defaults.global_style.lighting}, ${defaults.global_style.quality}
+    negative:
+      - ${defaults.global_negative}
+      - "plants, furniture, people"
+    control_hint: ["canny"]
+    mask_targets: ["mask_balconies"]
+    passes:
+      detail_pass:
+        mode: "inpaint"
+        target: "atlas_walls"
+        feather_px: 10
+
+  # -------------------------
+  # PLINTH / GROUND ZONE ACCENTS
+  # -------------------------
+  plinth_stone_dark:
+    kind: zone_accent
+    description: "Darker stone base/plinth with grime near ground"
+    prompt: >
+      Dark stone plinth, realistic blocks, mortar joints, heavier dirt and splash marks,
+      subtle moss in damp climate, consistent scale, believable wear.
+      {climate_hint}. {material_hint}. {seed_hint}.
+      ${defaults.global_style.photoreal}, ${defaults.global_style.texture_space},
+      ${defaults.global_style.lighting}, ${defaults.global_style.quality}
+    negative: ${defaults.global_negative}
+    control_hint: ["seg"]
+    mask_targets: ["mask_plinth"]
+    passes:
+      detail_pass:
+        mode: "inpaint"
+        target: "atlas_walls"
+        feather_px: 12
+
+  # -------------------------
+  # ROOF MATERIALS
+  # -------------------------
+  roof_asphalt_shingles:
+    kind: roof_base
+    description: "Asphalt shingles roof, residential"
+    prompt: >
+      Roof asphalt shingles, realistic pattern, subtle granules, slight weathering,
+      consistent shingle size, no perspective, neutral light.
+      {climate_hint}. {material_hint}. {seed_hint}.
+      ${defaults.global_style.photoreal}, ${defaults.global_style.texture_space},
+      ${defaults.global_style.lighting}, ${defaults.global_style.quality}
+    negative: ${defaults.global_negative}
+    control_hint: ["seg"]
+    passes:
+      base_pass:
+        target: "roof_island"
+        use_zones: ["roof"]
+        prefer_tiling: true
+
+  roof_metal_seam:
+    kind: roof_base
+    description: "Standing seam metal roof"
+    prompt: >
+      Standing seam metal roof, realistic seams, subtle oil-canning, slight oxidation,
+      consistent panel width, believable fasteners, neutral light.
+      {climate_hint}. {material_hint}. {seed_hint}.
+      ${defaults.global_style.photoreal}, ${defaults.global_style.texture_space},
+      ${defaults.global_style.lighting}, ${defaults.global_style.quality}
+    negative: ${defaults.global_negative}
+    control_hint: ["seg", "canny"]
+    passes:
+      base_pass:
+        target: "roof_island"
+        use_zones: ["roof"]
+        prefer_tiling: true
+
+  roof_bitumen_flat:
+    kind: roof_base
+    description: "Flat bitumen roof for mid/high-rise"
+    prompt: >
+      Flat bitumen roof membrane, realistic seams and patches, subtle gravel zones,
+      drains details suggested, slight puddle stains, neutral light.
+      {climate_hint}. {material_hint}. {seed_hint}.
+      ${defaults.global_style.photoreal}, ${defaults.global_style.texture_space},
+      ${defaults.global_style.lighting}, ${defaults.global_style.quality}
+    negative: ${defaults.global_negative}
+    control_hint: ["seg", "canny"]
+    passes:
+      base_pass:
+        target: "roof_island"
+        use_zones: ["roof"]
+        prefer_tiling: false
+
+  # -------------------------
+  # SEAM FIX / CORNER BLENDS
+  # -------------------------
+  seams_corner_blend:
+    kind: seam_fix
+    description: "Blend texture across wall corners (thin inpaint strips)"
+    prompt: >
+      Continue existing facade material seamlessly across the strip,
+      preserve underlying style, avoid new objects, keep consistent scale and alignment,
+      subtle micro-variation only.
+      ${defaults.global_style.photoreal}, ${defaults.global_style.texture_space},
+      ${defaults.global_style.lighting}, ${defaults.global_style.quality}
+    negative:
+      - ${defaults.global_negative}
+      - "new windows, new doors, new balconies"
+      - "pattern discontinuity, visible seam"
+    control_hint: []                 # pure inpaint
+    mask_targets: ["mask_seams"]
+    passes:
+      detail_pass:
+        mode: "inpaint"
+        target: "atlas_walls"
+        feather_px: 16
+
+  # -------------------------
+  # OPTIONAL: WEATHERING OVERLAY (FINAL PASS)
+  # -------------------------
+  finish_weathering_subtle:
+    kind: finish_pass
+    description: "Very subtle global wear pass (optional)"
+    prompt: >
+      Apply very subtle realistic weathering: faint dirt streaks from rain,
+      tiny discoloration, micro wear, keep architecture unchanged,
+      do not add graffiti, do not add text, preserve all openings.
+      {climate_hint}.
+      ${defaults.global_style.photoreal}, ${defaults.global_style.texture_space},
+      ${defaults.global_style.lighting}, ${defaults.global_style.quality}
+    negative: ${defaults.global_negative}
+    control_hint: ["seg"]            # prevent changing openings zones too much
+    mask_targets: ["mask_all_walls"]
+    passes:
+      detail_pass:
+        mode: "inpaint"
+        target: "atlas_walls"
+        feather_px: 0
+
+recipes:
+  # High-level "material sets" your pipeline can reference by name.
+  # Each recipe is a sequence of presets with explicit mask usage order.
+  apartment_concrete_panels:
+    description: "Typical mid-rise panel building"
+    sequence:
+      - preset: facade_concrete_panel_soviet
+        pass: base_pass
+      - preset: plinth_stone_dark
+        pass: detail_pass
+      - preset: openings_windows_pvc_white
+        pass: detail_pass
+      - preset: openings_doors_metal_entry
+        pass: detail_pass
+      - preset: openings_balcony_concrete_slab
+        pass: detail_pass
+      - preset: seams_corner_blend
+        pass: detail_pass
+      - preset: finish_weathering_subtle
+        pass: detail_pass
+    roof: roof_bitumen_flat
+
+  modern_plaster_residential:
+    description: "Modern plaster house"
+    sequence:
+      - preset: facade_plaster_modern
+        pass: base_pass
+      - preset: openings_windows_pvc_white
+        pass: detail_pass
+      - preset: openings_doors_metal_entry
+        pass: detail_pass
+      - preset: seams_corner_blend
+        pass: detail_pass
+    roof: roof_metal_seam
+
+  brick_classic_city:
+    description: "Brick apartment / mixed use"
+    sequence:
+      - preset: facade_brick_classic
+        pass: base_pass
+      - preset: plinth_stone_dark
+        pass: detail_pass
+      - preset: openings_windows_wood_traditional
+        pass: detail_pass
+      - preset: openings_doors_glass_commercial
+        pass: detail_pass
+      - preset: seams_corner_blend
+        pass: detail_pass
+      - preset: finish_weathering_subtle
+        pass: detail_pass
+    roof: roof_bitumen_flat

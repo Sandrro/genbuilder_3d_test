@@ -4,3 +4,4 @@ Pillow
 typer
 numpy
 trimesh
+pyyaml

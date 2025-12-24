@@ -19,6 +19,13 @@ def run(
     batch_size: int = typer.Option(1, help="Not used yet; reserved for batching"),
     device: str = typer.Option("cpu", help="Device for diffusion pipeline"),
     dry_run_geometry: bool = typer.Option(False, help="Skip heavy texturing; geometry only"),
+    city_hint: str | None = typer.Option(None, help="City or regional hint for prompts"),
+    climate_hint: str | None = typer.Option(None, help="Climate hint for prompts"),
+    era_hint: str | None = typer.Option(None, help="Era hint for prompts"),
+    style_hint: str | None = typer.Option(None, help="Style hint for prompts"),
+    material_hint: str | None = typer.Option(None, help="Material hint for prompts"),
+    seed_hint: str | None = typer.Option(None, help="Textual seed hint for prompts"),
+    recipe: str | None = typer.Option(None, help="Prompt library recipe to use"),
 ):
     setup_logging()
     params = GenParams(
@@ -28,6 +35,13 @@ def run(
         seed=seed,
         batch_size=batch_size,
         dry_run_geometry=dry_run_geometry,
+        city_hint=city_hint,
+        climate_hint=climate_hint,
+        era_hint=era_hint,
+        style_hint=style_hint,
+        material_hint=material_hint,
+        seed_hint=seed_hint,
+        recipe=recipe,
     )
     pipeline = BuildingPipeline(params=params)
     index_path = pipeline.run(input_path, output_dir)
