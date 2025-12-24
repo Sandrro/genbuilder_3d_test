@@ -1,0 +1,6 @@
+shapely
+pyproj
+Pillow
+typer
+numpy
+trimesh
