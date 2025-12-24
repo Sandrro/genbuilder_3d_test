@@ -3,6 +3,8 @@ import logging
 from pathlib import Path
 from typing import Dict, List
 
+from tqdm import tqdm
+
 from .exporter import export_glb, write_index
 from .geometry import (
     BuildingProperties,
@@ -57,12 +59,19 @@ class BuildingPipeline:
         )
 
     def process_feature(self, feature: Dict, output_dir: Path) -> Dict[str, object]:
+        feature_id = feature.get("id", "building")
+        LOGGER.info("Preparing geometry for feature %s", feature_id)
         prepared = self._prepare_geometry(feature)
         properties = self._properties_from_feature(feature)
+        LOGGER.info(
+            "Extruding building %s: %s floors at %.2f m per floor", feature_id, properties.floors_count, properties.floor_height
+        )
         mesh = extrude_building(prepared.polygon, properties)
+        LOGGER.info("Mapping UVs for feature %s", feature_id)
         atlas = self.uv_generator.map_wall_uvs(prepared.polygon, mesh)
         mesh = self.uv_generator.annotate_mesh_uvs(mesh, atlas)
 
+        LOGGER.info("Generating segmentation masks for feature %s", feature_id)
         masks = self.segmentation.generate(
             wall_size=atlas.wall_size,
             properties={"floors_count": properties.floors_count, "floor_height": properties.floor_height},
@@ -77,7 +86,8 @@ class BuildingPipeline:
             dry_run=self.dry_run_geometry,
         )
 
-        glb_output = output_dir / f"{feature.get('id', 'building')}.glb"
+        glb_output = output_dir / f"{feature_id}.glb"
+        LOGGER.info("Exporting GLB for feature %s to %s", feature_id, glb_output)
         export_glb(mesh, {"baseColor": textures.base_color}, glb_output)
 
         centroid = prepared.polygon.centroid
@@ -96,15 +106,21 @@ class BuildingPipeline:
         collection = json.loads(Path(geojson_path).read_text())
         if collection.get("type") != "FeatureCollection":
             raise ValueError("Input must be a FeatureCollection")
+        features = collection.get("features", [])
+        LOGGER.info("Starting pipeline for %s features", len(features))
         results: List[Dict[str, object]] = []
-        for feature in collection.get("features", []):
+        for feature in tqdm(features, desc="Processing buildings"):
+            feature_id = feature.get("id", "unknown")
+            LOGGER.info("Processing feature %s", feature_id)
             try:
                 record = self.process_feature(feature, output_dir)
                 results.append(record)
+                LOGGER.info("Finished feature %s", feature_id)
             except Exception as exc:  # noqa: BLE001
-                LOGGER.error("Failed to process feature %s: %s", feature.get("id"), exc)
+                LOGGER.error("Failed to process feature %s: %s", feature_id, exc)
         index_path = output_dir / "index.json"
         write_index(results, index_path)
+        LOGGER.info("Wrote index for %s features to %s", len(results), index_path)
         return index_path
 
 
