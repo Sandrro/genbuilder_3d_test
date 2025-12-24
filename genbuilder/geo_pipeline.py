@@ -68,10 +68,12 @@ class BuildingPipeline:
             properties={"floors_count": properties.floors_count, "floor_height": properties.floor_height},
             output_dir=output_dir / "masks",
         )
+        metadata = self.params.placeholder_metadata(properties.floors_count, properties.floor_height)
+        metadata.update({"roof": properties.roof_type or "flat", "material": properties.roof_material or "default"})
         textures = self.texture_generator.synthesize_facade(
             wall_size=atlas.wall_size,
             masks=masks,
-            metadata={"roof": properties.roof_type or "flat", "material": properties.roof_material or "default"},
+            metadata=metadata,
             dry_run=self.dry_run_geometry,
         )
 
