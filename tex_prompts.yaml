@@ -1,5 +1,5 @@
 # tex_prompts.yaml
-# Single-file prompt library for photorealistic building texturing in UV space (SDXL/FLUX).
+# Single-file prompt library for photorealistic building texturing in UV space (SD 1.5/FLUX).
 # Conventions:
 # - Prompts assume ORTHO UV-atlas rendering (no perspective), "flat texture / material scan" look.
 # - Use {placeholders} to inject runtime params (city, era, climate, floors, style tags).
@@ -40,7 +40,7 @@ defaults:
     - "{floor_height_m}"    # float as string
 
 sampler_defaults:
-  sdxl:
+  sd15:
     steps_base: 28
     steps_inpaint: 22
     cfg_base: 5.0
