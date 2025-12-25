@@ -14,7 +14,6 @@ def run(
     input_path: Path = typer.Argument(..., exists=True, help="Path to GeoJSON FeatureCollection"),
     output_dir: Path = typer.Argument(..., help="Directory for generated assets"),
     texel_density: float = typer.Option(512.0, help="Texels per meter for UV atlas"),
-    model: str = typer.Option("sdxl", help="Texture model choice (sdxl/flux)"),
     seed: int = typer.Option(0, help="Deterministic seed"),
     batch_size: int = typer.Option(1, help="Not used yet; reserved for batching"),
     device: str = typer.Option("cpu", help="Device for diffusion pipeline"),
@@ -30,7 +29,6 @@ def run(
     setup_logging()
     params = GenParams(
         texel_density=texel_density,
-        model=model,
         device=device,
         seed=seed,
         batch_size=batch_size,

@@ -32,7 +32,7 @@ class BuildingPipeline:
             texel_density=self.params.texel_density, config=self.params.facade_config
         )
         self.texture_generator = TextureGenerator(
-            cache_paths=self.cache, model=self.params.model, device=self.params.device, seed=self.params.seed
+            cache_paths=self.cache, device=self.params.device, seed=self.params.seed
         )
         self.seed = self.params.seed
         self.dry_run_geometry = self.params.dry_run_geometry
