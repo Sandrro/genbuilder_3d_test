@@ -6,8 +6,8 @@ from huggingface_hub import snapshot_download
 
 LOGGER = logging.getLogger(__name__)
 
-SDXL_BASE_REPO = "stabilityai/stable-diffusion-xl-base-1.0"
-CONTROLNET_REPO = "diffusers/controlnet-canny-sdxl-1.0"
+SD15_BASE_REPO = "runwayml/stable-diffusion-v1-5"
+CONTROLNET_REPO = "lllyasviel/sd-controlnet-canny"
 
 
 def _download_if_missing(repo_id: str, target_dir: Path) -> Path:
@@ -24,17 +24,17 @@ def _download_if_missing(repo_id: str, target_dir: Path) -> Path:
     return target_dir
 
 
-def ensure_sdxl_controlnet(model_root: Path) -> Tuple[Path, Path]:
-    """Ensure SDXL base and ControlNet weights exist locally.
+def ensure_sd15_controlnet(model_root: Path) -> Tuple[Path, Path]:
+    """Ensure SD 1.5 base and ControlNet weights exist locally.
 
     Downloads the required model snapshots into the repository's model directory
     on first run. Subsequent invocations are skipped thanks to a local marker file.
     """
 
-    sdxl_dir = model_root / "sdxl-base-1.0"
-    controlnet_dir = model_root / "controlnet-canny-sdxl-1.0"
+    base_dir = model_root / "sd-1.5"
+    controlnet_dir = model_root / "controlnet-canny-sd15"
 
-    base_path = _download_if_missing(SDXL_BASE_REPO, sdxl_dir)
+    base_path = _download_if_missing(SD15_BASE_REPO, base_dir)
     control_path = _download_if_missing(CONTROLNET_REPO, controlnet_dir)
 
     return base_path, control_path
@@ -43,4 +43,4 @@ def ensure_sdxl_controlnet(model_root: Path) -> Tuple[Path, Path]:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     models_root = Path(__file__).resolve().parents[1] / "models"
-    ensure_sdxl_controlnet(models_root)
+    ensure_sd15_controlnet(models_root)

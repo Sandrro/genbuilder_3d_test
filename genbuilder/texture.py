@@ -5,7 +5,7 @@ from typing import Dict, Optional
 
 from PIL import Image, ImageDraw
 
-from .model_downloader import ensure_sdxl_controlnet
+from .model_downloader import ensure_sd15_controlnet
 from .prompt_library import PromptLibrary
 from .segmentation import MaskBundle
 from .utils import CachePaths, sha256_of_dict
@@ -34,7 +34,7 @@ class TextureGenerator:
         default_library = Path(__file__).resolve().parents[1] / "tex_prompts.yaml"
         self.prompt_library_path = prompt_library_path or default_library
         self.prompt_library = self._load_prompt_library()
-        self.model_paths = ensure_sdxl_controlnet(self.cache_paths.model_dir())
+        self.model_paths = ensure_sd15_controlnet(self.cache_paths.model_dir())
 
     def _load_prompt_library(self) -> Optional[PromptLibrary]:
         if self.prompt_library_path.exists():
@@ -89,12 +89,12 @@ class TextureGenerator:
             base_img = self._placeholder_texture(wall_size, "dry-run")
         else:
             try:
-                from diffusers import StableDiffusionXLControlNetPipeline  # type: ignore
+                from diffusers import StableDiffusionControlNetPipeline  # type: ignore
 
                 # heavy models; only instantiate when requested
-                base_img = self._placeholder_texture(wall_size, f"sdxl-controlnet:{recipe}")
+                base_img = self._placeholder_texture(wall_size, f"sd15-controlnet:{recipe}")
                 LOGGER.info(
-                    "Diffusion model (SDXL + ControlNet) requested with recipe %s; pipeline instantiation skipped in tests",
+                    "Diffusion model (SD 1.5 + ControlNet) requested with recipe %s; pipeline instantiation skipped in tests",
                     recipe,
                 )
             except Exception as exc:  # noqa: BLE001

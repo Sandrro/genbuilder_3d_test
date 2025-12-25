@@ -10,8 +10,8 @@ python -m genbuilder.cli run input.geojson output_dir --texel-density 256 --dry-
 ```
 
 The CLI builds a `GenParams` configuration with the tunable options (texel density, device, seed, batch size, dry-run)
-and passes it into the pipeline so all configurable knobs live in one place. The texture generator always uses the
-SDXL + ControlNet pipeline; models are downloaded automatically to the repository on first use via
+and passes it into the pipeline so all configurable knobs live in one place. The texture generator now targets the
+SD 1.5 + ControlNet pipeline; models are downloaded automatically to the repository on first use via
 `genbuilder.model_downloader`.
 
 ## Notes
