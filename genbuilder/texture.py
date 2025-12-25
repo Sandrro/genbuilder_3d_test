@@ -20,6 +20,9 @@ class TextureResult:
     normal: Optional[Path]
 
 
+TEXTURE_CACHE_VERSION = "no-placeholder"
+
+
 class TextureGenerator:
     def __init__(
         self,
@@ -76,7 +79,13 @@ class TextureGenerator:
     ) -> TextureResult:
         recipe = self._select_recipe(metadata)
         prompt_context = {"recipe": recipe, **metadata}
-        cache_key = sha256_of_dict({"wall": wall_size, "meta": prompt_context})
+        cache_key = sha256_of_dict(
+            {
+                "wall": wall_size,
+                "meta": prompt_context,
+                "version": TEXTURE_CACHE_VERSION,
+            }
+        )
         base_path = self.cache_paths.texture_dir() / f"base_{cache_key}.png"
         roughness_path = self.cache_paths.texture_dir() / f"roughness_{cache_key}.png"
         normal_path = self.cache_paths.texture_dir() / f"normal_{cache_key}.png"
@@ -86,28 +95,20 @@ class TextureGenerator:
             return TextureResult(base_color=base_path, roughness=roughness_path, normal=normal_path)
 
         if dry_run:
-            base_img = self._placeholder_texture(wall_size, "dry-run")
-        else:
-            try:
-                from diffusers import StableDiffusionControlNetPipeline  # type: ignore
+            raise RuntimeError(
+                "Texture synthesis requested in dry-run mode; real model generation is required now that placeholders are removed."
+            )
 
-                # heavy models; only instantiate when requested
-                base_img = self._placeholder_texture(wall_size, f"sd15-controlnet:{recipe}")
-                LOGGER.info(
-                    "Diffusion model (SD 1.5 + ControlNet) requested with recipe %s; pipeline instantiation skipped in tests",
-                    recipe,
-                )
-            except Exception as exc:  # noqa: BLE001
-                LOGGER.warning("Diffusion pipeline unavailable (%s), using placeholder", exc)
-                base_img = self._placeholder_texture(wall_size, f"fallback:{recipe}")
+        try:
+            # Import solely to ensure the dependency is present. Actual pipeline
+            # invocation must be wired by the caller; we deliberately refuse to
+            # fabricate placeholder textures.
+            from diffusers import StableDiffusionControlNetPipeline  # type: ignore  # noqa: F401
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(
+                "Diffusion pipeline unavailable; cannot synthesize facade textures without the model."
+            ) from exc
 
-        base_img.save(base_path)
-
-        # Derived maps via heuristic grayscale conversions
-        roughness = base_img.convert("L")
-        roughness.save(roughness_path)
-        normal = base_img.convert("RGB")
-        ImageDraw.Draw(normal).rectangle([(0, 0), (10, 10)], outline=(128, 128, 255))
-        normal.save(normal_path)
-
-        return TextureResult(base_color=base_path, roughness=roughness_path, normal=normal_path)
+        raise RuntimeError(
+            "Texture synthesis is mandatory but no diffusion call was performed; integrate the model execution to proceed."
+        )
