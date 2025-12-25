@@ -9,8 +9,10 @@ pip install -r requirements.txt  # if you maintain a requirements file
 python -m genbuilder.cli run input.geojson output_dir --texel-density 256 --dry-run-geometry
 ```
 
-The CLI builds a `GenParams` configuration with the tunable options (texel density, model, device, seed, batch size, dry-run)
-and passes it into the pipeline so all configurable knobs live in one place.
+The CLI builds a `GenParams` configuration with the tunable options (texel density, device, seed, batch size, dry-run)
+and passes it into the pipeline so all configurable knobs live in one place. The texture generator always uses the
+SDXL + ControlNet pipeline; models are downloaded automatically to the repository on first use via
+`genbuilder.model_downloader`.
 
 ## Notes
 - The pipeline validates polygons, reprojects to a metric CRS, extrudes meshes, assigns UVs, and synthesizes placeholder textures unless diffusion is available.

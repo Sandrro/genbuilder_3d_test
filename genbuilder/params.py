@@ -9,7 +9,6 @@ class GenParams:
     """Configurable parameters for the building generation pipeline."""
 
     texel_density: float = 512.0
-    model: str = "sdxl"
     seed: int = 0
     batch_size: int = 1
     device: str = "cpu"
