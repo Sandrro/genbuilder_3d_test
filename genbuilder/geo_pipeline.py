@@ -1,7 +1,7 @@
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 from tqdm import tqdm
 
@@ -16,7 +16,7 @@ from .geometry import (
 )
 from .params import GenParams
 from .segmentation import SegmentationGenerator
-from .texture import TextureGenerator
+from .texture import TextureGenerator, TextureResult
 from .uv import UVGenerator
 from .utils import CachePaths, deterministic_seed, setup_logging
 
@@ -36,6 +36,7 @@ class BuildingPipeline:
         )
         self.seed = self.params.seed
         self.dry_run_geometry = self.params.dry_run_geometry
+        self._shape_textures: Dict[Tuple[float, float, float], TextureResult] = {}
         setup_logging()
         deterministic_seed(self.params.seed)
 
@@ -58,6 +59,16 @@ class BuildingPipeline:
             roof_material=props.get("roof_material"),
         )
 
+    def _shape_signature(self, polygon, properties: BuildingProperties) -> Tuple[float, float, float]:
+        minx, miny, maxx, maxy = polygon.bounds
+        width, length = sorted((maxx - minx, maxy - miny), reverse=True)
+        height = properties.building_height
+        return tuple(round(value, 3) for value in (width, length, height))
+
+    def _shape_mask_dir(self, output_dir: Path, shape_key: Tuple[float, float, float]) -> Path:
+        key_str = "_".join(f"{dim:.3f}" for dim in shape_key)
+        return output_dir / "masks" / key_str
+
     def process_feature(self, feature: Dict, output_dir: Path) -> Dict[str, object]:
         feature_id = feature.get("id", "building")
         LOGGER.info("Preparing geometry for feature %s", feature_id)
@@ -71,20 +82,27 @@ class BuildingPipeline:
         atlas = self.uv_generator.map_wall_uvs(prepared.polygon, mesh)
         mesh = self.uv_generator.annotate_mesh_uvs(mesh, atlas)
 
-        LOGGER.info("Generating segmentation masks for feature %s", feature_id)
-        masks = self.segmentation.generate(
-            wall_size=atlas.wall_size,
-            properties={"floors_count": properties.floors_count, "floor_height": properties.floor_height},
-            output_dir=output_dir / "masks",
-        )
-        metadata = self.params.placeholder_metadata(properties.floors_count, properties.floor_height)
-        metadata.update({"roof": properties.roof_type or "flat", "material": properties.roof_material or "default"})
-        textures = self.texture_generator.synthesize_facade(
-            wall_size=atlas.wall_size,
-            masks=masks,
-            metadata=metadata,
-            dry_run=self.dry_run_geometry,
-        )
+        shape_key = self._shape_signature(prepared.polygon, properties)
+        cached_textures = self._shape_textures.get(shape_key)
+        if cached_textures:
+            LOGGER.info("Reusing textures for shape %s", shape_key)
+            textures = cached_textures
+        else:
+            LOGGER.info("Generating segmentation masks for feature %s", feature_id)
+            masks = self.segmentation.generate(
+                wall_size=atlas.wall_size,
+                properties={"floors_count": properties.floors_count, "floor_height": properties.floor_height},
+                output_dir=self._shape_mask_dir(output_dir, shape_key),
+            )
+            metadata = self.params.placeholder_metadata(properties.floors_count, properties.floor_height)
+            metadata.update({"roof": properties.roof_type or "flat", "material": properties.roof_material or "default"})
+            textures = self.texture_generator.synthesize_facade(
+                wall_size=atlas.wall_size,
+                masks=masks,
+                metadata=metadata,
+                dry_run=self.dry_run_geometry,
+            )
+            self._shape_textures[shape_key] = textures
 
         glb_output = output_dir / f"{feature_id}.glb"
         LOGGER.info("Exporting GLB for feature %s to %s", feature_id, glb_output)
