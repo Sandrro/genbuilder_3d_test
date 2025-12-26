@@ -2,8 +2,9 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
+from PIL import Image
 import numpy as np
 import trimesh
 
@@ -45,7 +46,8 @@ def export_glb(mesh: Mesh, texture_paths: Dict[str, Path], output_path: Path) ->
                         face_idx,
                     )
 
-    texture_image = trimesh.visual.texture.load_image(str(base_color_path))
+    with Image.open(base_color_path) as img:
+        texture_image = img.convert("RGBA")
     visuals = trimesh.visual.texture.TextureVisuals(uv=uv, image=texture_image)
     tm = trimesh.Trimesh(vertices=vertices, faces=faces, visual=visuals, process=False)
 
