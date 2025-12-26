@@ -4,6 +4,10 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from PIL import Image, ImageDraw
+import numpy as np
+
+import torch
+from diffusers import ControlNetModel, StableDiffusionControlNetPipeline, UniPCMultistepScheduler
 
 from .model_downloader import ensure_sd15_controlnet
 from .prompt_library import PromptLibrary
@@ -38,6 +42,7 @@ class TextureGenerator:
         self.prompt_library_path = prompt_library_path or default_library
         self.prompt_library = self._load_prompt_library()
         self.model_paths = ensure_sd15_controlnet(self.cache_paths.model_dir())
+        self._pipeline: StableDiffusionControlNetPipeline | None = None
 
     def _load_prompt_library(self) -> Optional[PromptLibrary]:
         if self.prompt_library_path.exists():
@@ -74,6 +79,49 @@ class TextureGenerator:
         draw.text((10, 10), label, fill=(255, 255, 255))
         return img
 
+    def _load_pipeline(self) -> StableDiffusionControlNetPipeline:
+        if self._pipeline is not None:
+            return self._pipeline
+
+        base_path, controlnet_path = self.model_paths
+        dtype = torch.float16 if self.device.startswith("cuda") else torch.float32
+        controlnet = ControlNetModel.from_pretrained(controlnet_path, torch_dtype=dtype)
+        pipeline = StableDiffusionControlNetPipeline.from_pretrained(
+            base_path,
+            controlnet=controlnet,
+            torch_dtype=dtype,
+            safety_checker=None,
+            requires_safety_checker=False,
+        )
+        pipeline.scheduler = UniPCMultistepScheduler.from_config(pipeline.scheduler.config)
+        pipeline.to(self.device)
+        self._pipeline = pipeline
+        return pipeline
+
+    def _build_prompt(self, recipe: str, metadata: Dict[str, str]) -> str:
+        if self.prompt_library and self.prompt_library.has_recipe(recipe):
+            try:
+                recipe_data = self.prompt_library.get_recipe(recipe)
+                prompt = recipe_data.get("prompt") or recipe
+                try:
+                    prompt = prompt.format(**metadata)
+                except Exception:  # noqa: BLE001
+                    pass
+                return str(prompt)
+            except Exception:  # noqa: BLE001
+                return f"Facade texture, recipe {recipe}"
+        return f"Facade texture, recipe {recipe}"
+
+    def _compose_control_image(self, masks: MaskBundle) -> Image.Image:
+        plinth = Image.open(masks.plinth).convert("L")
+        floors = Image.open(masks.floors).convert("L")
+        openings = Image.open(masks.openings).convert("L")
+
+        combined = np.maximum(np.array(plinth), np.array(floors))
+        combined = np.maximum(combined, np.array(openings))
+        control = Image.fromarray(combined).convert("RGB")
+        return control
+
     def synthesize_facade(
         self, wall_size: tuple[int, int], masks: MaskBundle, metadata: Dict[str, str], dry_run: bool = False
     ) -> TextureResult:
@@ -99,16 +147,33 @@ class TextureGenerator:
                 "Texture synthesis requested in dry-run mode; real model generation is required now that placeholders are removed."
             )
 
-        try:
-            # Import solely to ensure the dependency is present. Actual pipeline
-            # invocation must be wired by the caller; we deliberately refuse to
-            # fabricate placeholder textures.
-            from diffusers import StableDiffusionControlNetPipeline  # type: ignore  # noqa: F401
-        except Exception as exc:  # noqa: BLE001
-            raise RuntimeError(
-                "Diffusion pipeline unavailable; cannot synthesize facade textures without the model."
-            ) from exc
+        pipeline = self._load_pipeline()
+        prompt = self._build_prompt(recipe, prompt_context)
+        control_image = self._compose_control_image(masks)
 
-        raise RuntimeError(
-            "Texture synthesis is mandatory but no diffusion call was performed; integrate the model execution to proceed."
+        generator = torch.Generator(device=self.device).manual_seed(self.seed)
+        result = pipeline(
+            prompt=prompt,
+            image=control_image,
+            num_inference_steps=20,
+            guidance_scale=5.0,
+            generator=generator,
         )
+
+        base_image: Image.Image = result.images[0]
+        roughness_image = Image.new("L", base_image.size, 128)
+        normal_image = Image.merge(
+            "RGB",
+            (
+                Image.new("L", base_image.size, 128),
+                Image.new("L", base_image.size, 128),
+                Image.new("L", base_image.size, 255),
+            ),
+        )
+
+        base_image.save(base_path)
+        roughness_image.save(roughness_path)
+        normal_image.save(normal_path)
+
+        LOGGER.info("Generated textures using ControlNet pipeline for %s", cache_key)
+        return TextureResult(base_color=base_path, roughness=roughness_path, normal=normal_path)
