@@ -8,3 +8,4 @@ pyyaml
 tqdm
 diffusers
 huggingface_hub
+torch
