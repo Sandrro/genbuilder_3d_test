@@ -7,7 +7,6 @@ from huggingface_hub import snapshot_download
 LOGGER = logging.getLogger(__name__)
 
 SD15_BASE_REPO = "sd-legacy/stable-diffusion-v1-5"
-SD15_BASE_FILE = "v1-5-pruned-emaonly.safetensors"
 CONTROLNET_REPO = "lllyasviel/sd-controlnet-canny"
 
 
@@ -40,7 +39,8 @@ def ensure_sd15_controlnet(model_root: Path) -> Tuple[Path, Path]:
     base_dir = model_root / "sd-1.5-pruned-emaonly"
     controlnet_dir = model_root / "controlnet-canny-sd15"
 
-    base_path = _download_if_missing(SD15_BASE_REPO, base_dir, allow_patterns=(SD15_BASE_FILE,))
+    # Download full snapshot so diffusers can load configs such as model_index.json
+    base_path = _download_if_missing(SD15_BASE_REPO, base_dir)
     control_path = _download_if_missing(CONTROLNET_REPO, controlnet_dir)
 
     return base_path, control_path
