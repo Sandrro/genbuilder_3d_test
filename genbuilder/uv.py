@@ -1,4 +1,5 @@
 import logging
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
@@ -66,18 +67,26 @@ class UVGenerator:
     def annotate_mesh_uvs(self, mesh: Mesh, atlas: UVAtlas) -> Mesh:
         mesh.uvs = atlas.wall_uvs + atlas.roof_uvs
         # Rebuild uv_indices to align with uv list
-        wall_face_count = len(mesh.face_labels)
         mesh.uv_indices = []
-        uv_cursor = 0
+        wall_face_counts: Dict[int, int] = defaultdict(int)
+        roof_offset = len(atlas.wall_uvs)
+        roof_cursor = 0
+
         for label in mesh.face_labels:
             if label.startswith("wall"):
-                indices = (uv_cursor, uv_cursor + 1, uv_cursor + 2)
+                wall_idx = int(label.split("_")[1])
+                face_number = wall_face_counts[wall_idx]
+                base = wall_idx * 4
+                if face_number == 0:
+                    indices = (base, base + 1, base + 2)
+                else:
+                    indices = (base, base + 2, base + 3)
+                wall_face_counts[wall_idx] += 1
                 mesh.uv_indices.append(indices)
-                uv_cursor += 4  # four UVs per quad (two triangles)
             else:
-                indices = (uv_cursor, uv_cursor + 1, uv_cursor + 2)
+                indices = (roof_offset + roof_cursor, roof_offset + roof_cursor + 1, roof_offset + roof_cursor + 2)
                 mesh.uv_indices.append(indices)
-                uv_cursor += 3
+                roof_cursor += 3
         return mesh
 
 
