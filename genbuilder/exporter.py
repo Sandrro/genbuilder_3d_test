@@ -1,6 +1,7 @@
 import json
 import logging
-from dataclasses import dataclass
+import shutil
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List
 
@@ -17,9 +18,16 @@ LOGGER = logging.getLogger(__name__)
 @dataclass
 class ExportResult:
     glb_path: Path
+    textures: Dict[str, Path] = field(default_factory=dict)
 
 
-def export_glb(mesh: Mesh, texture_paths: Dict[str, Path], output_path: Path) -> ExportResult:
+def export_glb(
+    mesh: Mesh,
+    texture_paths: Dict[str, Path | None],
+    output_path: Path,
+    texture_export_dir: Path | None = None,
+    texture_name_prefix: str | None = None,
+) -> ExportResult:
     if not texture_paths:
         raise ValueError("At least one texture is required to export a textured GLB")
 
@@ -53,7 +61,30 @@ def export_glb(mesh: Mesh, texture_paths: Dict[str, Path], output_path: Path) ->
 
     ensure_dir(output_path.parent)
     tm.export(output_path, file_type="glb")
-    return ExportResult(glb_path=output_path)
+
+    exported_textures: Dict[str, Path] = {}
+    if texture_export_dir is not None:
+        name_prefix = texture_name_prefix or output_path.stem
+        exported_textures = export_textures(
+            texture_paths=texture_paths,
+            output_dir=texture_export_dir,
+            name_prefix=name_prefix,
+        )
+
+    return ExportResult(glb_path=output_path, textures=exported_textures)
+
+
+def export_textures(texture_paths: Dict[str, Path | None], output_dir: Path, name_prefix: str) -> Dict[str, Path]:
+    ensure_dir(output_dir)
+    exported: Dict[str, Path] = {}
+    for texture_type, source_path in texture_paths.items():
+        if source_path is None:
+            continue
+        extension = source_path.suffix or ".png"
+        destination = output_dir / f"{name_prefix}_{texture_type}{extension}"
+        shutil.copy2(source_path, destination)
+        exported[texture_type] = destination
+    return exported
 
 
 def write_index(records: List[Dict[str, object]], output_path: Path) -> None:

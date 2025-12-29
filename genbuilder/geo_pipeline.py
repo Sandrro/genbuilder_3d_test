@@ -106,12 +106,25 @@ class BuildingPipeline:
 
         glb_output = output_dir / f"{feature_id}.glb"
         LOGGER.info("Exporting GLB for feature %s to %s", feature_id, glb_output)
-        export_glb(mesh, {"baseColor": textures.base_color}, glb_output)
+        texture_sources: Dict[str, Path | None] = {
+            "baseColor": textures.base_color,
+            "roughness": textures.roughness,
+            "normal": textures.normal,
+        }
+        texture_dir = output_dir / "textures"
+        export_result = export_glb(
+            mesh,
+            texture_sources,
+            glb_output,
+            texture_export_dir=texture_dir,
+            texture_name_prefix=str(feature_id),
+        )
 
         centroid = prepared.polygon.centroid
         return {
             "id": feature.get("id"),
             "glb": str(glb_output),
+            "textures": {name: str(path) for name, path in export_result.textures.items()},
             "centroid": {
                 "x": centroid.x,
                 "y": centroid.y,
