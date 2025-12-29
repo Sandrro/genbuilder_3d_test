@@ -21,6 +21,8 @@ class FacadeMaskConfig:
     horizontal_margin: float = 0.8
     vertical_margin: float = 0.5
     seam_margin: float = 0.5
+    min_opening_spacing_horizontal: float = 1.0
+    min_opening_spacing_vertical: float = 0.9
 
 
 @dataclass
@@ -77,14 +79,17 @@ class SegmentationGenerator:
         for i in range(floors_count):
             y_top = clamp(height - (i + 1) * floor_height_px, 0, height)
             y_bottom = clamp(height - i * floor_height_px, 0, height)
-            draw_floors.rectangle([(0, y_top), (width, y_bottom)], fill=int(255 * (i % 2 == 0)))
+            tone = int(255 * (1 - i / max(floors_count, 1)))
+            draw_floors.rectangle([(0, y_top), (width, y_bottom)], fill=tone)
 
-        # Openings grid with seam-aware margins
+        # Openings grid with seam-aware margins that respect Russian spacing norms
         draw_openings = ImageDraw.Draw(opening_mask)
         window_w_px = int(self.config.window_width * self.texel_density)
         window_h_px = int(self.config.window_height * self.texel_density)
-        margin_x = int(self.config.horizontal_margin * self.texel_density)
-        margin_y = int(self.config.vertical_margin * self.texel_density)
+        margin_x = int(
+            max(self.config.horizontal_margin, self.config.min_opening_spacing_horizontal) * self.texel_density
+        )
+        margin_y = int(max(self.config.vertical_margin, self.config.min_opening_spacing_vertical) * self.texel_density)
         door_w_px = int(self.config.door_width * self.texel_density)
         door_h_px = int(self.config.door_height * self.texel_density)
         seam_guard = int(self.config.seam_margin * self.texel_density)
