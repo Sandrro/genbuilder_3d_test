@@ -12,6 +12,8 @@ def test_wall_strip_dimensions_and_uv_ordering():
     generator = UVGenerator(texel_density=10)
     atlas = generator.map_wall_uvs(polygon, mesh)
     assert atlas.wall_size[0] > atlas.wall_size[1]
+    assert atlas.seam_positions[0] == 0
+    assert atlas.seam_positions[-1] == atlas.wall_size[0]
 
     # UV continuity around perimeter
     expected_segments = len(polygon.exterior.coords) - 1
