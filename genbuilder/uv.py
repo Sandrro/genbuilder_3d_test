@@ -17,6 +17,7 @@ class UVAtlas:
     roof_size: Tuple[int, int]
     wall_uvs: List[Tuple[float, float]]
     roof_uvs: List[Tuple[float, float]]
+    seam_positions: Tuple[int, ...]
 
 
 @dataclass
@@ -42,12 +43,15 @@ class UVGenerator:
         height = float(max(v[2] for v in mesh.vertices))
         width_px, height_px = self.wall_strip_dimensions(perimeter, height)
 
+        seam_positions: List[int] = [0]
+        
         wall_uvs: List[Tuple[float, float]] = []
         cumulative = 0.0
         for segment_length in lengths:
             x0 = cumulative / perimeter
             x1 = (cumulative + segment_length) / perimeter
             cumulative += segment_length
+            seam_positions.append(int(round(cumulative / perimeter * width_px)))
             wall_uvs.extend(
                 [
                     (x0, 0.0),
@@ -62,6 +66,7 @@ class UVGenerator:
             roof_size=(max(width_px // 2, 16), max(height_px // 2, 16)),
             wall_uvs=wall_uvs,
             roof_uvs=roof_uvs,
+            seam_positions=tuple(seam_positions),
         )
 
     def annotate_mesh_uvs(self, mesh: Mesh, atlas: UVAtlas) -> Mesh:

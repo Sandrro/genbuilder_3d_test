@@ -16,7 +16,7 @@ from .geometry import (
 )
 from .params import GenParams
 from .segmentation import SegmentationGenerator
-from .texture import TextureGenerator, TextureResult
+from .texture import FacadeTextures, TextureGenerator
 from .uv import UVGenerator
 from .utils import CachePaths, deterministic_seed, setup_logging
 
@@ -36,7 +36,7 @@ class BuildingPipeline:
         )
         self.seed = self.params.seed
         self.dry_run_geometry = self.params.dry_run_geometry
-        self._shape_textures: Dict[Tuple[float, float, float], TextureResult] = {}
+        self._shape_textures: Dict[Tuple[float, float, float], FacadeTextures] = {}
         setup_logging()
         deterministic_seed(self.params.seed)
 
@@ -93,12 +93,14 @@ class BuildingPipeline:
                 wall_size=atlas.wall_size,
                 properties={"floors_count": properties.floors_count, "floor_height": properties.floor_height},
                 output_dir=self._shape_mask_dir(output_dir, shape_key),
+                seams=atlas.seam_positions,
             )
             metadata = self.params.placeholder_metadata(properties.floors_count, properties.floor_height)
             metadata.update({"roof": properties.roof_type or "flat", "material": properties.roof_material or "default"})
-            textures = self.texture_generator.synthesize_facade(
+            textures = self.texture_generator.generate_full_facade(
                 wall_size=atlas.wall_size,
-                masks=masks,
+                layout=masks,
+                roof_size=atlas.roof_size,
                 metadata=metadata,
                 dry_run=self.dry_run_geometry,
             )
@@ -110,6 +112,8 @@ class BuildingPipeline:
             "baseColor": textures.base_color,
             "roughness": textures.roughness,
             "normal": textures.normal,
+            "roof": textures.roof,
+            "wall_base": textures.wall_base,
         }
         texture_dir = output_dir / "textures"
         export_result = export_glb(

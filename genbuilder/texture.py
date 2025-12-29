@@ -1,7 +1,7 @@
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from PIL import Image, ImageDraw
 import numpy as np
@@ -11,7 +11,7 @@ from diffusers import ControlNetModel, StableDiffusionControlNetPipeline, UniPCM
 
 from .model_downloader import ensure_sd15_controlnet
 from .prompt_library import PromptLibrary
-from .segmentation import MaskBundle
+from .segmentation import FacadeLayout, MaskBundle, OpeningPlacement
 from .utils import CachePaths, sha256_of_dict
 
 LOGGER = logging.getLogger(__name__)
@@ -24,7 +24,15 @@ class TextureResult:
     normal: Optional[Path]
 
 
-TEXTURE_CACHE_VERSION = "no-placeholder"
+@dataclass
+class FacadeTextures(TextureResult):
+    wall_base: Path
+    opening_variants: Dict[str, Path]
+    windows_applied: Path
+    roof: Path
+
+
+TEXTURE_CACHE_VERSION = "facade-unfold-v1"
 
 
 class TextureGenerator:
@@ -121,6 +129,174 @@ class TextureGenerator:
         combined = np.maximum(combined, np.array(openings))
         control = Image.fromarray(combined).convert("RGB")
         return control
+
+    def _cache_key(self, tag: str, wall_size: tuple[int, int], metadata: Dict[str, str]) -> str:
+        prompt_context = {"tag": tag, **metadata}
+        return sha256_of_dict(
+            {
+                "wall": wall_size,
+                "meta": prompt_context,
+                "version": TEXTURE_CACHE_VERSION,
+            }
+        )
+
+    def _render_material(
+        self,
+        masks: MaskBundle,
+        wall_size: tuple[int, int],
+        metadata: Dict[str, str],
+        tag: str,
+        dry_run: bool,
+    ) -> tuple[Path, Path, Path]:
+        cache_key = self._cache_key(tag, wall_size, metadata)
+        base_path = self.cache_paths.texture_dir() / f"{tag}_base_{cache_key}.png"
+        roughness_path = self.cache_paths.texture_dir() / f"{tag}_roughness_{cache_key}.png"
+        normal_path = self.cache_paths.texture_dir() / f"{tag}_normal_{cache_key}.png"
+
+        if base_path.exists() and roughness_path.exists() and normal_path.exists():
+            LOGGER.info("Using cached %s textures for %s", tag, cache_key)
+            return base_path, roughness_path, normal_path
+
+        if dry_run:
+            raise RuntimeError(
+                "Texture synthesis requested in dry-run mode; real model generation is required now that placeholders are removed."
+            )
+
+        pipeline = self._load_pipeline()
+        recipe = self._select_recipe(metadata)
+        prompt = self._build_prompt(recipe, {"recipe": recipe, **metadata})
+        control_image = self._compose_control_image(masks)
+
+        generator = torch.Generator(device=self.device).manual_seed(self.seed)
+        result = pipeline(
+            prompt=prompt,
+            image=control_image,
+            num_inference_steps=20,
+            guidance_scale=5.0,
+            generator=generator,
+        )
+
+        base_image: Image.Image = result.images[0]
+        roughness_image = Image.new("L", base_image.size, 128)
+        normal_image = Image.merge(
+            "RGB",
+            (
+                Image.new("L", base_image.size, 128),
+                Image.new("L", base_image.size, 128),
+                Image.new("L", base_image.size, 255),
+            ),
+        )
+
+        base_image.save(base_path)
+        roughness_image.save(roughness_path)
+        normal_image.save(normal_path)
+        LOGGER.info("Generated %s textures using ControlNet pipeline for %s", tag, cache_key)
+        return base_path, roughness_path, normal_path
+
+    def _blank_openings_mask(self, wall_size: tuple[int, int]) -> Path:
+        width, height = wall_size
+        blank_path = self.cache_paths.texture_dir() / f"blank_{width}x{height}.png"
+        if not blank_path.exists():
+            Image.new("L", (width, height), 0).save(blank_path)
+        return blank_path
+
+    def generate_wall_base(
+        self, wall_size: tuple[int, int], layout: FacadeLayout, metadata: Dict[str, str], dry_run: bool = False
+    ) -> tuple[Path, Path, Path]:
+        empty_openings = self._blank_openings_mask(wall_size)
+        neutral_masks = MaskBundle(plinth=layout.plinth, floors=layout.floors, openings=empty_openings)
+        return self._render_material(neutral_masks, wall_size, metadata, tag="facade", dry_run=dry_run)
+
+    def _variant_cache_key(self, layout: FacadeLayout, metadata: Dict[str, str]) -> str:
+        return sha256_of_dict(
+            {
+                "seams": layout.seam_positions,
+                "placements": [(p.x, p.y, p.width, p.height, p.kind, p.variant) for p in layout.placements],
+                "meta": metadata,
+                "version": TEXTURE_CACHE_VERSION,
+            }
+        )
+
+    def generate_opening_variants(self, layout: FacadeLayout, metadata: Dict[str, str]) -> Dict[str, Path]:
+        cache_key = self._variant_cache_key(layout, metadata)
+        colors = [(180, 210, 240), (200, 180, 220), (175, 205, 190), (210, 190, 170), (185, 185, 185)]
+        variant_paths: Dict[str, Path] = {}
+        patch_size = (
+            max((p.width for p in layout.placements), default=64),
+            max((p.height for p in layout.placements), default=64),
+        )
+        for idx, color in enumerate(colors):
+            name = f"variant_{idx}"
+            variant_path = self.cache_paths.texture_dir() / f"{name}_{cache_key}.png"
+            if not variant_path.exists():
+                patch = Image.new("RGB", patch_size, color)
+                ImageDraw.Draw(patch).rectangle([(0, 0), (patch_size[0] - 1, patch_size[1] - 1)], outline=(60, 60, 60))
+                patch.save(variant_path)
+            variant_paths[name] = variant_path
+        return variant_paths
+
+    def compose_openings(
+        self,
+        base_texture: Path,
+        layout: FacadeLayout,
+        variant_paths: Dict[str, Path],
+        metadata: Dict[str, str],
+    ) -> Path:
+        cache_key = self._variant_cache_key(layout, metadata)
+        composed_path = self.cache_paths.texture_dir() / f"facade_with_openings_{cache_key}.png"
+        if composed_path.exists():
+            return composed_path
+
+        facade = Image.open(base_texture).convert("RGB")
+        variant_names = list(variant_paths.keys())
+        for placement in layout.placements:
+            variant_name = variant_names[placement.variant % len(variant_names)]
+            variant_img = Image.open(variant_paths[variant_name]).convert("RGB")
+            resized = variant_img.resize((placement.width, placement.height))
+            facade.paste(resized, (placement.x, placement.y))
+
+        facade.save(composed_path)
+        return composed_path
+
+    def generate_roof_texture(self, roof_size: tuple[int, int], metadata: Dict[str, str], dry_run: bool = False) -> Path:
+        cache_key = sha256_of_dict({"roof": roof_size, "meta": metadata, "version": TEXTURE_CACHE_VERSION})
+        roof_path = self.cache_paths.texture_dir() / f"roof_{cache_key}.png"
+        if roof_path.exists():
+            return roof_path
+
+        if dry_run:
+            raise RuntimeError(
+                "Texture synthesis requested in dry-run mode; real model generation is required now that placeholders are removed."
+            )
+
+        base_color = tuple(int(140 + (hash(cache_key) % 40)) for _ in range(3))
+        roof_image = Image.new("RGB", roof_size, base_color)
+        ImageDraw.Draw(roof_image).line([(0, 0), (roof_size[0], roof_size[1])], fill=(80, 80, 80), width=2)
+        roof_image.save(roof_path)
+        return roof_path
+
+    def generate_full_facade(
+        self,
+        wall_size: tuple[int, int],
+        layout: FacadeLayout,
+        roof_size: tuple[int, int],
+        metadata: Dict[str, str],
+        dry_run: bool = False,
+    ) -> FacadeTextures:
+        wall_base, roughness_path, normal_path = self.generate_wall_base(wall_size, layout, metadata, dry_run)
+        variant_paths = self.generate_opening_variants(layout, metadata)
+        windows_applied = self.compose_openings(wall_base, layout, variant_paths, metadata)
+        roof_texture = self.generate_roof_texture(roof_size, metadata, dry_run)
+
+        return FacadeTextures(
+            base_color=windows_applied,
+            roughness=roughness_path,
+            normal=normal_path,
+            wall_base=wall_base,
+            opening_variants=variant_paths,
+            windows_applied=windows_applied,
+            roof=roof_texture,
+        )
 
     def synthesize_facade(
         self, wall_size: tuple[int, int], masks: MaskBundle, metadata: Dict[str, str], dry_run: bool = False
