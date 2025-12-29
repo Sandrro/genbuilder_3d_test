@@ -14,6 +14,10 @@ class GenParams:
     device: str = "cpu"
     dry_run_geometry: bool = False
     cache_dir: Path | None = None
+    use_comfyui: bool = False
+    comfyui_base_url: str = "http://127.0.0.1:8188"
+    comfyui_checkpoint: str | None = None
+    comfyui_controlnet: str | None = None
     facade_config: FacadeMaskConfig = field(default_factory=FacadeMaskConfig)
     # Prompt placeholder hints (optional)
     city_hint: str | None = None

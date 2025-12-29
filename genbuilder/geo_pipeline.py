@@ -16,6 +16,7 @@ from .geometry import (
 )
 from .params import GenParams
 from .segmentation import SegmentationGenerator
+from .comfy import ComfyUIConfig
 from .texture import FacadeTextures, TextureGenerator
 from .uv import UVGenerator
 from .utils import CachePaths, deterministic_seed, setup_logging
@@ -31,8 +32,17 @@ class BuildingPipeline:
         self.segmentation = SegmentationGenerator(
             texel_density=self.params.texel_density, config=self.params.facade_config
         )
+        comfy_config = ComfyUIConfig(
+            base_url=self.params.comfyui_base_url,
+            checkpoint=self.params.comfyui_checkpoint or ComfyUIConfig().checkpoint,
+            controlnet=self.params.comfyui_controlnet or ComfyUIConfig().controlnet,
+        )
         self.texture_generator = TextureGenerator(
-            cache_paths=self.cache, device=self.params.device, seed=self.params.seed
+            cache_paths=self.cache,
+            device=self.params.device,
+            seed=self.params.seed,
+            use_comfyui=self.params.use_comfyui,
+            comfy_config=comfy_config,
         )
         self.seed = self.params.seed
         self.dry_run_geometry = self.params.dry_run_geometry

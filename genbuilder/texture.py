@@ -10,6 +10,7 @@ import numpy as np
 import torch
 from diffusers import ControlNetModel, StableDiffusionControlNetPipeline, UniPCMultistepScheduler
 
+from .comfy import ComfyUIClient, ComfyUIConfig
 from .model_downloader import ensure_sd15_controlnet
 from .prompt_library import PromptLibrary
 from .segmentation import FacadeLayout, MaskBundle, OpeningPlacement
@@ -43,6 +44,8 @@ class TextureGenerator:
         device: str = "cpu",
         seed: int = 0,
         prompt_library_path: Path | None = None,
+        use_comfyui: bool = False,
+        comfy_config: ComfyUIConfig | None = None,
     ):
         self.cache_paths = cache_paths
         self.device = device
@@ -50,8 +53,13 @@ class TextureGenerator:
         default_library = Path(__file__).resolve().parents[1] / "tex_prompts.yaml"
         self.prompt_library_path = prompt_library_path or default_library
         self.prompt_library = self._load_prompt_library()
-        self.model_paths = ensure_sd15_controlnet(self.cache_paths.model_dir())
+        self.use_comfyui = use_comfyui
+        self.comfy_config = comfy_config or ComfyUIConfig()
+        self.comfy_client = ComfyUIClient(self.comfy_config) if self.use_comfyui else None
+        self.model_paths: tuple[Path, Path] | None = None
         self._pipeline: StableDiffusionControlNetPipeline | None = None
+        if not self.use_comfyui:
+            self.model_paths = ensure_sd15_controlnet(self.cache_paths.model_dir())
 
     def _load_prompt_library(self) -> Optional[PromptLibrary]:
         if self.prompt_library_path.exists():
@@ -91,6 +99,9 @@ class TextureGenerator:
     def _load_pipeline(self) -> StableDiffusionControlNetPipeline:
         if self._pipeline is not None:
             return self._pipeline
+
+        if self.model_paths is None:
+            raise RuntimeError("Diffusers pipeline requested while ComfyUI mode is enabled")
 
         base_path, controlnet_path = self.model_paths
         dtype = torch.float16 if self.device.startswith("cuda") else torch.float32
@@ -176,21 +187,35 @@ class TextureGenerator:
                 "Texture synthesis requested in dry-run mode; real model generation is required now that placeholders are removed."
             )
 
-        pipeline = self._load_pipeline()
         recipe = self._select_recipe(metadata)
         prompt = self._build_prompt(recipe, {"recipe": recipe, **metadata})
         control_image = self._compose_control_image(masks)
 
-        generator = torch.Generator(device=self.device).manual_seed(self.seed)
-        result = pipeline(
-            prompt=prompt,
-            image=control_image,
-            num_inference_steps=20,
-            guidance_scale=5.0,
-            generator=generator,
-        )
+        if self.use_comfyui:
+            if not self.comfy_client:
+                raise RuntimeError("ComfyUI client not configured")
+            base_image = self.comfy_client.render_controlnet(
+                prompt=prompt,
+                negative_prompt="",
+                control_image=control_image,
+                seed=self.seed,
+                steps=20,
+                cfg_scale=5.0,
+                width=wall_size[0],
+                height=wall_size[1],
+            )
+        else:
+            pipeline = self._load_pipeline()
+            generator = torch.Generator(device=self.device).manual_seed(self.seed)
+            result = pipeline(
+                prompt=prompt,
+                image=control_image,
+                num_inference_steps=20,
+                guidance_scale=5.0,
+                generator=generator,
+            )
 
-        base_image: Image.Image = result.images[0]
+            base_image: Image.Image = result.images[0]
         roughness_image = Image.new("L", base_image.size, 128)
         normal_image = Image.merge(
             "RGB",
@@ -233,18 +258,33 @@ class TextureGenerator:
                 "Texture synthesis requested in dry-run mode; real model generation is required now that placeholders are removed."
             )
 
-        pipeline = self._load_pipeline()
         prompt = f"Realistic {kind} texture with architectural detailing, photorealistic, clean materials"
         control_image = self._opening_control_image(size, kind)
-        generator = torch.Generator(device=self.device).manual_seed(self.seed + variant)
-        result = pipeline(
-            prompt=prompt,
-            image=control_image,
-            num_inference_steps=15,
-            guidance_scale=6.0,
-            generator=generator,
-        )
-        result.images[0].save(base_path)
+        if self.use_comfyui:
+            if not self.comfy_client:
+                raise RuntimeError("ComfyUI client not configured")
+            image = self.comfy_client.render_controlnet(
+                prompt=prompt,
+                negative_prompt="",
+                control_image=control_image,
+                seed=self.seed + variant,
+                steps=15,
+                cfg_scale=6.0,
+                width=size[0],
+                height=size[1],
+            )
+        else:
+            pipeline = self._load_pipeline()
+            generator = torch.Generator(device=self.device).manual_seed(self.seed + variant)
+            result = pipeline(
+                prompt=prompt,
+                image=control_image,
+                num_inference_steps=15,
+                guidance_scale=6.0,
+                generator=generator,
+            )
+            image: Image.Image = result.images[0]
+        image.save(base_path)
         return base_path
 
     def _blank_openings_mask(self, wall_size: tuple[int, int]) -> Path:
@@ -378,20 +418,33 @@ class TextureGenerator:
                 "Texture synthesis requested in dry-run mode; real model generation is required now that placeholders are removed."
             )
 
-        pipeline = self._load_pipeline()
         prompt = self._build_prompt(recipe, prompt_context)
         control_image = self._compose_control_image(masks)
+        if self.use_comfyui:
+            if not self.comfy_client:
+                raise RuntimeError("ComfyUI client not configured")
+            base_image = self.comfy_client.render_controlnet(
+                prompt=prompt,
+                negative_prompt="",
+                control_image=control_image,
+                seed=self.seed,
+                steps=20,
+                cfg_scale=5.0,
+                width=wall_size[0],
+                height=wall_size[1],
+            )
+        else:
+            pipeline = self._load_pipeline()
+            generator = torch.Generator(device=self.device).manual_seed(self.seed)
+            result = pipeline(
+                prompt=prompt,
+                image=control_image,
+                num_inference_steps=20,
+                guidance_scale=5.0,
+                generator=generator,
+            )
 
-        generator = torch.Generator(device=self.device).manual_seed(self.seed)
-        result = pipeline(
-            prompt=prompt,
-            image=control_image,
-            num_inference_steps=20,
-            guidance_scale=5.0,
-            generator=generator,
-        )
-
-        base_image: Image.Image = result.images[0]
+            base_image: Image.Image = result.images[0]
         roughness_image = Image.new("L", base_image.size, 128)
         normal_image = Image.merge(
             "RGB",
@@ -406,5 +459,5 @@ class TextureGenerator:
         roughness_image.save(roughness_path)
         normal_image.save(normal_path)
 
-        LOGGER.info("Generated textures using ControlNet pipeline for %s", cache_key)
+        LOGGER.info("Generated textures using %s pipeline for %s", "ComfyUI" if self.use_comfyui else "ControlNet", cache_key)
         return TextureResult(base_color=base_path, roughness=roughness_path, normal=normal_path)

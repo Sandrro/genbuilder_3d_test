@@ -14,6 +14,10 @@ and passes it into the pipeline so all configurable knobs live in one place. The
 SD 1.5 (pruned EMA-only weights from `sd-legacy/stable-diffusion-v1-5`) + ControlNet pipeline; models are downloaded
 automatically to the repository on first use via `genbuilder.model_downloader`.
 
+To run texture synthesis through a remote ComfyUI instance instead of the built-in diffusers pipeline, set
+`GenParams(use_comfyui=True, comfyui_base_url="http://127.0.0.1:8188")`. Optional fields let you provide custom
+checkpoint and ControlNet names if they differ from the defaults.
+
 ## Notes
 - The pipeline validates polygons, reprojects to a metric CRS, extrudes meshes, assigns UVs, and synthesizes placeholder textures unless diffusion is available.
 - Unit tests cover UV mapping continuity and mask generation.
